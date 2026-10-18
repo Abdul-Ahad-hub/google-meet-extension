@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Meet Recorder — Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      max-width: 480px;
+      margin: 60px auto;
+      padding: 24px;
+    }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    p { font-size: 13px; color: #a0a0a0; line-height: 1.5; margin-bottom: 20px; }
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      background: #fff;
+      color: #000;
+      border: 1px solid #fff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #d8d8d8; }
+    button:disabled { background: #2a2a2a; color: #6b6b6b; border-color: #2a2a2a; cursor: not-allowed; }
+    #status {
+      margin-top: 16px;
+      font-size: 13px;
+      padding: 10px 12px;
+      border-radius: 4px;
+      display: none;
+    }
+    #status.ok { display: block; border: 1px solid #2a4d2a; background: #001a00; }
+    #status.err { display: block; border: 1px solid #4d0000; background: #2a0000; }
+    video {
+      width: 100%;
+      margin-top: 16px;
+      border-radius: 4px;
+      background: #111;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>Camera setup</h1>
+  <p>
+    This grants the extension permission to access your camera. Do this once,
+    from this tab — it's required because a hidden background document can't
+    show Chrome's permission prompt itself.
+  </p>
+  <button id="btn-grant">Grant camera access</button>
+  <div id="status"></div>
+  <video id="preview" autoplay muted playsinline></video>
+
+  <script src="options.js"></script>
+</body>
+</html>
