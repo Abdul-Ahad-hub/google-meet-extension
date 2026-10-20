@@ -172,6 +172,7 @@ you should lower `OUTPUT_SIZE` or `FRAMES_PER_WINDOW`.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
+| `DEV_SKIP_LOGIN` | `false` | Testing only: skip Google sign-in and use a fake user. See section 6. |
 | `BACKEND_BASE_URL` | `http://localhost:3000` | Your backend. Use https in production. |
 | `FRAMES_ENDPOINT` | `/engagement/frames` | Receives one window (frames + landmarks). |
 | `SESSION_ENDPOINT` | `/engagement/sessions` | Receives the summary on Save. |
@@ -188,7 +189,84 @@ how many could not be delivered.
 
 ---
 
-## 6. Files
+## 6. Login (Google sign-in)
+
+The popup shows **Continue with Google** first. Capture only starts after sign-in. Two ways to get past it:
+
+### A) Quick test mode (no Google setup)
+
+In `config.js` set:
+
+```js
+DEV_SKIP_LOGIN: true,
+```
+
+Reload the extension (`chrome://extensions` -> reload arrow). "Continue with Google" now signs in a fake
+user (`dev@test.local`, name "Dev Tester") and goes straight to the main screen. Capture, cropping,
+landmarks, timing and uploads all work normally.
+
+What is different in this mode:
+
+- No Google token is sent, so the request has **no** `Authorization: Bearer ...` header. A backend that
+  verifies the token will answer `401`; use `test/test-server.js` or switch auth off while testing.
+- Every upload carries the same fake `userEmail` / `userName`.
+- **Never ship with `DEV_SKIP_LOGIN: true`.** Anyone could "log in" without verification.
+- The fake user is stored in `chrome.storage`. When you switch to real login, set the flag back to
+  `false`, reload, click **Logout** in the popup, then sign in again.
+
+### B) Real Google login (one-time setup)
+
+1. Open `chrome://extensions`, turn on Developer mode, and copy the extension **ID** (32 letters).
+2. In [Google Cloud Console](https://console.cloud.google.com) create a project.
+3. *APIs & Services -> OAuth consent screen*: choose **External**, fill the basics, and add your own
+   email under **Test users** (needed while the app is not published).
+4. *Credentials -> Create credentials -> OAuth client ID*: Application type = **Chrome Extension**,
+   Item ID = the extension ID from step 1.
+5. Copy the client ID (`xxxx.apps.googleusercontent.com`) into `manifest.json`:
+   ```json
+   "oauth2": { "client_id": "xxxx.apps.googleusercontent.com", "scopes": [ ... ] }
+   ```
+6. Reload the extension and sign in.
+
+Notes:
+
+- An unpacked extension's ID depends on its **folder path**. If you move the folder, the ID changes and
+  the client ID must be created again. To keep a fixed ID, add a `key` to `manifest.json`.
+- `chrome.identity.getAuthToken` works in real Google Chrome with a signed-in Google account. It does not
+  work reliably in Brave, Edge or Chromium.
+- If sign-in fails, the reason is shown in red inside the popup. If it says
+  *"Google client_id is not set"*, the placeholder in `manifest.json` has not been replaced yet.
+- The backend can verify the token it receives with Google (`https://www.googleapis.com/oauth2/v3/tokeninfo`
+  or `userinfo`).
+
+---
+
+## 7. Testing
+
+1. Start the test backend (no `npm install` needed): `node test/test-server.js`. It listens on
+   `http://localhost:3000` and checks every window: shape `[16,160,160,3]`, byte count, landmarks
+   `[16][52][3]`, zero landmarks for no-face frames, crop `source`, timing, frame gaps. It also saves
+   `out/window_N.png`, a 4x4 contact sheet of the 16 crops.
+2. Make the loop faster while testing: `BREAK_SECONDS: 3` in `config.js` (set it back to 20 afterwards).
+3. Load the extension (*Load unpacked*), sign in (use `DEV_SKIP_LOGIN: true` if Google is not set up yet).
+4. Join a real Meet call (not the lobby) with the camera ON.
+5. Watch the terminal for one window per cycle, and open *Inspect views: offscreen.html* on
+   `chrome://extensions` to see the per-window timing log.
+
+What to look for:
+
+| Check | How | Expected |
+|-------|-----|----------|
+| Face crop | open `out/window_0.png` | face in the middle with some shoulders/body (x1.5) |
+| No-face fallback | cover the camera or look away mid-window | that frame is a center crop, `faceDetected=false`, zero landmarks |
+| Timing | `TIME` lines / console | `avgFrameMs` well below 625 |
+| Break | timestamps of consecutive windows | `WINDOW_SECONDS + BREAK_SECONDS` apart |
+| Save | click Save in the popup | session record with `framesCenterCrop`, `avgFrameMs` |
+| Backend down | stop the test server | windows wait in the queue; Save reports how many were not delivered |
+
+---
+
+## 8. Files
 
 | File | Job |
 |------|-----|
@@ -199,9 +277,11 @@ how many could not be delivered.
 | `popup.*`, `options.*` | The extension UI. |
 | `vendor/face_mesh` | `@mediapipe/face_mesh` from npm, with one line patched (`createNamedFunction` no longer uses `new Function`) so it runs under Chrome's Manifest V3 CSP. |
 
-## 7. Quick troubleshooting
+## 9. Quick troubleshooting
 
 - **Many `"source": "center"` frames:** face is too small, too dark, or turned away; check the camera.
 - **`frame took ... ms` warnings:** the machine is slow; lower `OUTPUT_SIZE` or `FRAMES_PER_WINDOW`.
 - **Backend returns 413:** body limit too small, see Backend notes.
 - **Nothing is captured:** the camera must be ON in Meet, and the call must be active (not the lobby).
+- **Stuck on the login screen:** read the red message in the popup; usually `client_id` is still the placeholder (see section 6).
+- **Changed `config.js` but nothing changed:** reload the extension on `chrome://extensions`.
