@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Meet Session Recorder",
-  "version": "1.1.0",
-  "description": "Sign in with Google, track a live Meet session, and send sampled face-landmark data for engagement analysis.",
+  "version": "1.2.0",
+  "description": "Sign in with Google, track a live Meet session, and send 16-frame face crops and face-landmark data for engagement analysis.",
   "minimum_chrome_version": "116",
 
   "action": {

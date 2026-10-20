@@ -145,7 +145,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
 
-      // One 4-frame window of landmarks, sent up from the offscreen document.
+      // One 10 s window (16 face crops + 16 landmark sets), sent up from the offscreen document.
       case "BATCH_READY": {
         try {
           const { user } = await chrome.storage.local.get(["user"]);
@@ -188,6 +188,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             savedAt: new Date().toISOString(),
             framesCaptured: stopRes.framesCaptured,
             framesWithFace: stopRes.framesWithFace,
+            framesCenterCrop: stopRes.framesCenterCrop,
+            avgFrameMs: stopRes.avgFrameMs,
+            maxFrameMs: stopRes.maxFrameMs,
             windowsSent: stopRes.windowsSent,
             windowsUnsent: stopRes.windowsUnsent,
           };
@@ -209,7 +212,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (stopRes.windowsUnsent > 0 || sessionError) {
             const parts = [];
             if (stopRes.windowsUnsent > 0) {
-              parts.push(`${stopRes.windowsUnsent} landmark batch(es) could not reach the backend (${stopRes.lastError || "unknown error"})`);
+              parts.push(`${stopRes.windowsUnsent} window(s) could not reach the backend (${stopRes.lastError || "unknown error"})`);
             }
             if (sessionError) parts.push(`session record not delivered (${sessionError})`);
             sendResponse({ ok: false, error: "Capture stopped, but " + parts.join("; ") + "." });

@@ -5,19 +5,36 @@ const CONFIG = {
   // Base URL of your backend. Use your deployed https URL in production.
   BACKEND_BASE_URL: "http://localhost:3000",
 
-  // One POST per sampling window (4 landmark frames). Align with your controller routes.
+  // One POST per window (16 frames + 16 landmark sets). Align with your controller routes.
   FRAMES_ENDPOINT: "/engagement/frames",
 
   // One POST when the user clicks Save (session metadata + role).
   SESSION_ENDPOINT: "/engagement/sessions",
 
-  // Sampling pattern: capture the last frame of each second for CAPTURE_SECONDS
-  // seconds, then pause for GAP_SECONDS seconds, then repeat.
-  CAPTURE_SECONDS: 4,
-  GAP_SECONDS: 2,
+  // Sampling pattern: capture for WINDOW_SECONDS (FRAMES_PER_WINDOW frames, evenly
+  // spaced: 10 s / 16 = one frame every 625 ms), then rest for BREAK_SECONDS,
+  // then start the next window. Cycle = 10 s on + 20 s off = 30 s by default.
+  WINDOW_SECONDS: 10,
+  FRAMES_PER_WINDOW: 16,
+  BREAK_SECONDS: 20,
+
+  // Face crop: the face bounding box (from Face Mesh) is made square and scaled
+  // by this factor so some shoulders/body come along with the face.
+  CROP_SCALE: 1.5,
+
+  // When NO face is found in a frame, that frame is still kept: the biggest
+  // centered square of the camera image is used instead (landmarks = all zeros).
+
+  // Every cropped frame is resized to OUTPUT_SIZE x OUTPUT_SIZE x 3 (RGB, uint8).
+  OUTPUT_SIZE: 160,
+
+  // If the user clicks Save in the middle of a window, send the incomplete
+  // window (missing frames zero-filled) or throw it away.
+  SEND_PARTIAL_WINDOW: false,
 
   // Max unsent windows kept in memory if the backend is unreachable.
-  MAX_QUEUED_WINDOWS: 100,
+  // One window is ~1.6 MB as base64, so keep this small.
+  MAX_QUEUED_WINDOWS: 6,
 };
 
 // The exact 52 landmark indices, in the exact order of inference.py's

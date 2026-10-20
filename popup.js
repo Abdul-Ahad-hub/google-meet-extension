@@ -153,7 +153,7 @@ function renderStatus(status) {
   const canRecord = status.meetingActive && status.cameraOn;
   btnSave.disabled = !canRecord;
   elSaveHint.textContent = canRecord
-    ? "Sampling your camera (4 s on / 2 s off). Click Save to stop and send this session."
+    ? "Sampling your camera (16 frames in 10 s, then a 20 s break). Click Save to stop and send this session."
     : "Camera must be on and the meeting must be active to capture.";
 
   // Ask background to (idempotently) start capture once conditions are met.
