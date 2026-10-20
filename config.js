@@ -4,7 +4,7 @@
 const CONFIG = {
   // TESTING ONLY: skip Google sign-in and use a fake user, so you can test the
   // capture pipeline before the OAuth client ID is set up. Keep false in production.
-  DEV_SKIP_LOGIN: false,
+  DEV_SKIP_LOGIN: true,
 
   // Base URL of your backend. Use your deployed https URL in production.
   BACKEND_BASE_URL: "http://localhost:3000",
