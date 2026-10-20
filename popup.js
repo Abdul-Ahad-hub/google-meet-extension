@@ -9,6 +9,7 @@ const elRole = document.getElementById("status-role");
 const elCamera = document.getElementById("status-camera");
 const elRecording = document.getElementById("status-recording");
 const elError = document.getElementById("error-box");
+const elAuthError = document.getElementById("auth-error");
 const elSaveHint = document.getElementById("save-hint");
 const btnSave = document.getElementById("btn-save");
 const btnEnableCamera = document.getElementById("btn-enable-camera");
@@ -17,14 +18,19 @@ let pollTimer = null;
 let currentTabId = null;
 let lastKnownStatus = null;
 
+// The login screen and the main screen each have their own error box, so
+// errors are visible no matter which view is showing.
 function showError(msg) {
-  elError.textContent = msg;
-  elError.classList.remove("hidden");
+  const el = viewAuth.classList.contains("hidden") ? elError : elAuthError;
+  el.textContent = msg;
+  el.classList.remove("hidden");
 }
 
 function clearError() {
-  elError.classList.add("hidden");
-  elError.textContent = "";
+  for (const el of [elError, elAuthError]) {
+    el.classList.add("hidden");
+    el.textContent = "";
+  }
 }
 
 function switchToMain(user) {

@@ -26,6 +26,20 @@ async function fetchGoogleUserInfo(token) {
 }
 
 async function handleLogin() {
+  if (CONFIG.DEV_SKIP_LOGIN) {
+    const user = { email: "dev@test.local", name: "Dev Tester", picture: null, googleId: "dev" };
+    await chrome.storage.local.set({ user });
+    return user;
+  }
+
+  const clientId = (chrome.runtime.getManifest().oauth2 || {}).client_id || "";
+  if (!clientId || clientId.includes("PASTE_YOUR")) {
+    throw new Error(
+      "Google client_id is not set. Put your real OAuth client ID in manifest.json (oauth2.client_id), " +
+        "then reload the extension. For testing only, set DEV_SKIP_LOGIN: true in config.js."
+    );
+  }
+
   const token = await getAuthToken(true);
   const info = await fetchGoogleUserInfo(token);
   const user = { email: info.email, name: info.name, picture: info.picture, googleId: info.sub };
@@ -46,6 +60,7 @@ async function handleLogout() {
 async function postJson(path, body) {
   let token = null;
   try {
+    if (CONFIG.DEV_SKIP_LOGIN) throw new Error("dev mode: no token");
     token = await getAuthToken(false); // silent; Google access token your backend can verify
   } catch (e) {
     /* send without it; backend decides whether that's acceptable */
