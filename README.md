@@ -62,7 +62,8 @@ crop  ->  resize to 160 x 160  ->  RGB bytes (alpha dropped)  ->  slot k of the 
    `inference.py`) are taken from the **same full frame**. Their x/y values are normalized to the
    full frame (0..1), **not** to the crop. `cropBoxes` in the payload lets the backend convert them
    if it ever needs crop-relative coordinates.
-4. **Resize + RGB.** The crop is resized to 160 x 160 and stored as raw `uint8` RGB bytes.
+4. **Resize + RGB.** The crop is resized to 160 x 160 and stored as raw `uint8` RGB bytes (76,800 bytes).
+   Every frame stays its **own separate image**; the 16 frames are never merged into one blob.
 
 ### When no face is detected
 
@@ -109,7 +110,8 @@ you should lower `OUTPUT_SIZE` or `FRAMES_PER_WINDOW`.
 
 ## 4. Request sent to the backend
 
-`POST {BACKEND_BASE_URL}{FRAMES_ENDPOINT}` - one per window (about 1.6 MB of JSON).
+`POST {BACKEND_BASE_URL}{FRAMES_ENDPOINT}` - one per window (about 1.6 MB of JSON). Landmarks and frames
+are separate fields, and `frames` is an **array of 16 separate frames** (one entry per frame):
 
 ```jsonc
 {
@@ -120,25 +122,29 @@ you should lower `OUTPUT_SIZE` or `FRAMES_PER_WINDOW`.
   "partial": false,
   "framesFilled": 16,
   "frameIntervalMs": 625,
-
-  "faceDetected": [true, true, false, ...],        // 16 booleans
-  "capturedAt":   ["2026-10-21T10:00:00.002Z", ...], // 16 timestamps
-  "cropBoxes": [                                   // 16 entries, crop used in full-frame pixels
-    { "source": "face",   "x": 190, "y": 60, "size": 260, "frameWidth": 640, "frameHeight": 480 },
-    { "source": "center", "x": 80,  "y": 0,  "size": 480, "frameWidth": 640, "frameHeight": 480 }
-  ],
-  "frameTimingsMs": [ { "meshMs": 31.4, "cropMs": 2.1, "totalMs": 34.0 }, ... ],   // 16 entries
+  "faceDetected": [true, true, false, ...],   // 16 booleans, same order as landmarks
   "timing": { "avgFrameMs": 35.2, "maxFrameMs": 61.5, "avgMeshMs": 32.0, "encodeMs": 18.3, "windowSpanMs": 9420 },
 
-  "landmarks": [ [[x,y,z], ... 52 points], ... 16 frames ],   // shape [16, 52, 3]   <- separate field
+  "landmarks": [ [[x,y,z], ... 52 points], ... 16 frames ],   // shape [16, 52, 3]  <- separate field
 
-  "frames": {                                                 // <- separate field
-    "encoding": "base64",
-    "dtype": "uint8",
-    "shape": [16, 160, 160, 3],
-    "channelOrder": "RGB",
-    "data": "<base64 of 16*160*160*3 = 1,228,800 raw bytes>"
-  },
+  "frames": [                                                  // <- 16 separate frames
+    {
+      "index": 0,                                  // 0..15, capture order
+      "capturedAt": "2026-10-21T10:00:00.002Z",
+      "faceDetected": true,
+      "cropBox": { "source": "face", "x": 190, "y": 60, "size": 260, "frameWidth": 640, "frameHeight": 480 },
+      "timingMs": { "meshMs": 31.4, "cropMs": 2.1, "totalMs": 34.0 },
+      "encoding": "base64",
+      "dtype": "uint8",
+      "shape": [160, 160, 3],                      // height, width, channels
+      "channelOrder": "RGB",
+      "data": "<base64 of 160*160*3 = 76,800 raw bytes>"
+    },
+    { "index": 1, "faceDetected": false,
+      "cropBox": { "source": "center", "x": 80, "y": 0, "size": 480, "frameWidth": 640, "frameHeight": 480 },
+      "...": "same fields" },
+    ... 16 entries in total
+  ],
 
   "userEmail": "...", "userName": "...",
   "landmarkIndices": [ ...52 ints... ], "landmarkCount": 52
@@ -157,14 +163,22 @@ you should lower `OUTPUT_SIZE` or `FRAMES_PER_WINDOW`.
 
 - **Body size.** One request is ~1.6 MB. NestJS/Express allow only 100 kb by default, so raise it,
   e.g. in `main.ts`: `app.use(json({ limit: '10mb' }))`.
-- **Decode in Python:**
+- **Decode in Python** (each frame on its own; stack them yourself only if the model needs it):
   ```python
   import base64, numpy as np
-  frames = np.frombuffer(base64.b64decode(body["frames"]["data"]), dtype=np.uint8).reshape(16, 160, 160, 3)
-  landmarks = np.array(body["landmarks"], dtype=np.float32)          # (16, 52, 3)
-  valid = np.array(body["faceDetected"])                              # (16,) False -> zero landmarks
+  frames = [
+      np.frombuffer(base64.b64decode(f["data"]), dtype=np.uint8).reshape(160, 160, 3)
+      for f in sorted(body["frames"], key=lambda f: f["index"])
+  ]                                                                    # 16 x (160, 160, 3)
+  batch = np.stack(frames)                                             # (16, 160, 160, 3) if needed
+  landmarks = np.array(body["landmarks"], dtype=np.float32)            # (16, 52, 3)
+  valid = np.array(body["faceDetected"])                               # (16,) False -> zero landmarks
   ```
-- Image layout is `[frame][row][column][R,G,B]`, values 0-255 (not normalized).
+- **Decode in Node/NestJS:**
+  ```ts
+  const frames = body.frames.map((f) => Buffer.from(f.data, 'base64')); // 16 Buffers, 76,800 bytes each
+  ```
+- Image layout per frame is `[row][column][R,G,B]`, values 0-255 (not normalized).
 
 ---
 
@@ -246,7 +260,8 @@ Notes:
 1. Start the test backend (no `npm install` needed): `node test/test-server.js`. It listens on
    `http://localhost:3000` and checks every window: shape `[16,160,160,3]`, byte count, landmarks
    `[16][52][3]`, zero landmarks for no-face frames, crop `source`, timing, frame gaps. It also saves
-   `out/window_N.png`, a 4x4 contact sheet of the 16 crops.
+   every frame as its own PNG (`out/window_N/frame_00.png` ... `frame_15.png`) and a 4x4 contact sheet
+   (`out/window_N_sheet.png`).
 2. Make the loop faster while testing: `BREAK_SECONDS: 3` in `config.js` (set it back to 20 afterwards).
 3. Load the extension (*Load unpacked*), sign in (use `DEV_SKIP_LOGIN: true` if Google is not set up yet).
 4. Join a real Meet call (not the lobby) with the camera ON.
@@ -257,7 +272,7 @@ What to look for:
 
 | Check | How | Expected |
 |-------|-----|----------|
-| Face crop | open `out/window_0.png` | face in the middle with some shoulders/body (x1.5) |
+| Face crop | open `out/window_0_sheet.png` (or the single `frame_XX.png` files) | face in the middle with some shoulders/body (x1.5) |
 | No-face fallback | cover the camera or look away mid-window | that frame is a center crop, `faceDetected=false`, zero landmarks |
 | Timing | `TIME` lines / console | `avgFrameMs` well below 625 |
 | Break | timestamps of consecutive windows | `WINDOW_SECONDS + BREAK_SECONDS` apart |
