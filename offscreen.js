@@ -408,6 +408,17 @@ async function startCapture(newMeetingId) {
     return { ok: false, error: `Setup failed: ${err && err.message}` };
   }
 
+  // Warm-up: the very first Face Mesh call compiles shaders / initialises the
+  // graph and can take seconds. Do it once now (result ignored) so it does not
+  // delay the first real frames of the window.
+  try {
+    const warm = snapshotVideo();
+    if (warm) await faceMesh.send({ image: warm });
+  } catch (err) {
+    console.warn("[offscreen] warm-up frame failed (ignored):", err && err.message);
+  }
+  latestResults = null;
+
   meetingId = newMeetingId;
   windowIndex = 0;
   win = newWindow();

@@ -275,7 +275,7 @@ What to look for:
 | `background.js` | Google login, uploads to the backend, Save/stop handling. |
 | `content.js` | Reads the Meet page (in a call? camera on? host or participant?). |
 | `popup.*`, `options.*` | The extension UI. |
-| `vendor/face_mesh` | `@mediapipe/face_mesh` from npm, with one line patched (`createNamedFunction` no longer uses `new Function`) so it runs under Chrome's Manifest V3 CSP. |
+| `vendor/face_mesh` | `@mediapipe/face_mesh` from npm, patched so it runs under Chrome's Manifest V3 CSP (which forbids `eval` / `new Function`). Patched in both `face_mesh_solution_wasm_bin.js` and `face_mesh_solution_simd_wasm_bin.js`: `createNamedFunction`, `craftInvokerFunction` and `__emval_get_method_caller` no longer build code strings at runtime; they use plain closures with identical behaviour. |
 
 ## 9. Quick troubleshooting
 
@@ -283,5 +283,6 @@ What to look for:
 - **`frame took ... ms` warnings:** the machine is slow; lower `OUTPUT_SIZE` or `FRAMES_PER_WINDOW`.
 - **Backend returns 413:** body limit too small, see Backend notes.
 - **Nothing is captured:** the camera must be ON in Meet, and the call must be active (not the lobby).
+- **`Setup failed: Evaluating a string as JavaScript violates ... 'unsafe-eval'`:** a vendored MediaPipe file still builds code with `new Function`/`eval`. Use the patched `vendor/face_mesh/*_wasm_bin.js` files from this repo. Do not "fix" it by adding `'unsafe-eval'` to the manifest; Chrome refuses that for extension pages.
 - **Stuck on the login screen:** read the red message in the popup; usually `client_id` is still the placeholder (see section 6).
 - **Changed `config.js` but nothing changed:** reload the extension on `chrome://extensions`.
