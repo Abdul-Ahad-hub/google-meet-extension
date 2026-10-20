@@ -9,9 +9,10 @@
 //     * face bounding box -> made square -> x CROP_SCALE (1.5) -> crop
 //       -> resize to 160x160 -> RGB bytes
 //     * NO face: centered square crop of the frame, landmarks all zeros
-//   -> after 16 frames (10 s) stack everything into one window:
-//        landmarks : [16][52][3]            (separate field)
-//        frames    : uint8 [16,160,160,3]   (separate field, base64 of raw bytes)
+//   -> after 16 frames (10 s) one window is sent:
+//        landmarks : [16][52][3]                         (separate field)
+//        frames    : array of 16 SEPARATE frames, each its own
+//                    uint8 [160,160,3] RGB image (base64 of 76,800 raw bytes)
 //   -> send to background -> backend.
 
 let stream = null;
@@ -150,7 +151,7 @@ function newWindow() {
   return {
     startedAt: null,
     count: 0, // frames processed so far in this window
-    pixels: new Uint8Array(N * FRAME_BYTES), // zero-filled = "no face" frames stay black
+    pixels: Array.from({ length: N }, () => new Uint8Array(FRAME_BYTES)), // one buffer per frame; zero = no image
     landmarks: Array.from({ length: N }, zeroLandmarks),
     faceDetected: new Array(N).fill(false),
     capturedAt: new Array(N).fill(null),
@@ -212,7 +213,7 @@ async function processFrame(slot, snap, capturedAt) {
         box = centerCropBox(snap.width, snap.height);
         source = "center";
       }
-      cropped = cropToRgb(snap, box, win.pixels, slot * FRAME_BYTES);
+      cropped = cropToRgb(snap, box, win.pixels[slot], 0);
     } catch (err) {
       console.error("[offscreen] crop failed:", err && err.message);
       cropped = false;
@@ -240,7 +241,7 @@ async function processFrame(slot, snap, capturedAt) {
       frameHeight: snap.height,
     };
   } else {
-    win.pixels.fill(0, slot * FRAME_BYTES, (slot + 1) * FRAME_BYTES);
+    win.pixels[slot].fill(0);
   }
 
   // 4) timing for this frame (snapshot already taken, so this is pure processing cost)
@@ -297,7 +298,7 @@ async function finalizeWindow(partial) {
 
   const index = windowIndex++;
   const tEnc = performance.now();
-  const data = await bytesToBase64(w.pixels);
+  const encoded = await Promise.all(w.pixels.map((px) => bytesToBase64(px))); // 16 separate base64 strings
   const encodeMs = performance.now() - tEnc;
   const done = w.frameTimingsMs.filter(Boolean);
   const sum = (k) => done.reduce((acc, t) => acc + t[k], 0);
@@ -317,23 +318,25 @@ async function finalizeWindow(partial) {
     partial,
     framesFilled: w.count,
     frameIntervalMs: FRAME_INTERVAL_MS,
-    faceDetected: w.faceDetected, // [16] booleans; false = that slot is all zeros
-    capturedAt: w.capturedAt, // [16] ISO timestamps
-    cropBoxes: w.cropBoxes, // [16] crop used per frame; source = "face" or "center"
-    frameTimingsMs: w.frameTimingsMs, // [16] { meshMs, cropMs, totalMs } processing time per frame
-    timing, // per-window summary
+    faceDetected: w.faceDetected, // [16] booleans, same order as landmarks
+    timing, // per-window timing summary
 
     // --- landmarks: their own field -------------------------------------
-    landmarks: w.landmarks, // [16][52][3], normalised to the full frame
+    landmarks: w.landmarks, // [16][52][3], normalised to the full frame; zeros when no face
 
-    // --- frames: their own field ----------------------------------------
-    frames: {
+    // --- frames: 16 separate frames, NOT merged into one blob -------------
+    frames: encoded.map((data, k) => ({
+      index: k, // 0..15, capture order
+      capturedAt: w.capturedAt[k],
+      faceDetected: w.faceDetected[k],
+      cropBox: w.cropBoxes[k], // { source: "face"|"center", x, y, size, frameWidth, frameHeight } | null
+      timingMs: w.frameTimingsMs[k], // { meshMs, cropMs, totalMs }
       encoding: "base64",
       dtype: "uint8",
-      shape: [N, S, S, 3],
+      shape: [S, S, 3], // height, width, channels
       channelOrder: "RGB",
-      data, // base64 of N*S*S*3 raw bytes, row-major
-    },
+      data, // base64 of S*S*3 raw bytes (76,800 for 160x160x3), row-major
+    })),
   };
 
   queue.push(batch);
