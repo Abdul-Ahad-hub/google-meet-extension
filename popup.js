@@ -152,20 +152,29 @@ function renderStatus(status) {
 
   chrome.runtime.sendMessage({ type: "GET_RECORDING_STATE" }, (rec) => {
     const isRecording = rec && rec.recording;
-    elRecording.textContent = isRecording ? "Capturing…" : "Idle";
-    elRecording.className = isRecording ? "status-value ok" : "status-value muted";
+    const isPaused = rec && rec.paused;
+    elRecording.textContent = isRecording ? (isPaused ? "Paused (camera off)" : "Capturing…") : "Idle";
+    elRecording.className = isRecording && !isPaused ? "status-value ok" : "status-value muted";
+
+    const canRecord = status.meetingActive && status.cameraOn;
+    // Allow clicking Save while a recording session is active (even if camera was just turned off).
+    btnSave.disabled = !(canRecord || isRecording);
+    elSaveHint.textContent = canRecord
+      ? "Sampling your camera (16 frames in 10 s, then a 20 s break). Click Save to stop and send this session."
+      : isRecording
+        ? "Capture paused while camera is off. Click Save to finish and send this session."
+        : "Camera must be on and the meeting must be active to capture.";
   });
 
-  const canRecord = status.meetingActive && status.cameraOn;
-  btnSave.disabled = !canRecord;
-  elSaveHint.textContent = canRecord
-    ? "Sampling your camera (16 frames in 10 s, then a 20 s break). Click Save to stop and send this session."
-    : "Camera must be on and the meeting must be active to capture.";
-
   // Ask background to (idempotently) start capture once conditions are met.
-  if (canRecord) {
+  if (status.meetingActive && status.cameraOn) {
     chrome.runtime.sendMessage(
-      { type: "ENSURE_RECORDING", meetingId: status.meetingId },
+      {
+        type: "ENSURE_RECORDING",
+        meetingId: status.meetingId,
+        role: status.role,
+        tabId: currentTabId,
+      },
       (res) => {
         if (chrome.runtime.lastError) return;
         if (res && !res.ok && res.error) {

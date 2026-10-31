@@ -1,12 +1,13 @@
-// Edit these to match your NestJS backend. Loaded by background.js (importScripts)
-// and offscreen.html (<script>), so keep it as plain top-level constants.
+// Edit these to match your NestJS backend. Loaded directly by background.js
+// (importScripts) and offscreen.html (<script>), so no build step is needed —
+// just edit this file and click Reload on chrome://extensions.
 
 const CONFIG = {
   // TESTING ONLY: skip Google sign-in and use a fake user, so you can test the
   // capture pipeline before the OAuth client ID is set up. Keep false in production.
-  DEV_SKIP_LOGIN: true,
+  DEV_SKIP_LOGIN: false,
 
-  // Base URL of your backend. Use your deployed https URL in production.
+  // Base URL of your backend (no trailing slash). Use https in production.
   BACKEND_BASE_URL: "http://localhost:3000",
 
   // One POST per window (16 frames + 16 landmark sets). Align with your controller routes.
@@ -39,6 +40,19 @@ const CONFIG = {
   // Max unsent windows kept in memory if the backend is unreachable.
   // One window is ~1.6 MB as base64, so keep this small.
   MAX_QUEUED_WINDOWS: 6,
+
+  // Start capture automatically when the Meet tab reports "in call + camera on",
+  // without the popup having to be open.
+  AUTO_START: true,
+
+  // Release the camera while the Meet camera is off; resume when it's back on.
+  PAUSE_WHEN_CAMERA_OFF: true,
+
+  // Send the session record automatically when the user leaves the call or closes the tab.
+  AUTO_SAVE_ON_LEAVE: true,
+
+  // How often queued windows are retried (seconds) while the backend is unreachable.
+  RETRY_SECONDS: 15,
 };
 
 // The exact 52 landmark indices, in the exact order of inference.py's

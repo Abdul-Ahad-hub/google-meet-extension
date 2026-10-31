@@ -54,3 +54,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   return false;
 });
+
+// Push state transitions (call joined/left, camera toggled) to background.js so
+// capture can auto-start, pause when camera is off, and auto-save on call leave
+// without requiring the user to keep the popup open.
+let lastSignature = "";
+
+function checkAndNotify() {
+  if (!chrome.runtime?.id) return;
+  const status = collectStatus();
+  const sig = `${status.meetingActive}|${status.meetingId}|${status.cameraOn}|${status.role}`;
+  if (sig === lastSignature) return;
+  lastSignature = sig;
+  chrome.runtime.sendMessage({ type: "MEET_STATUS_CHANGED", status }, () => {
+    void chrome.runtime.lastError;
+  });
+}
+
+setInterval(checkAndNotify, 2000);
+checkAndNotify();

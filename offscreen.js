@@ -14,18 +14,27 @@
 //        frames    : array of 16 SEPARATE frames, each its own
 //                    uint8 [160,160,3] RGB image (base64 of 76,800 raw bytes)
 //   -> send to background -> backend.
+//
+// Session lifecycle: start -> (pause <-> resume while the Meet camera is
+// toggled) -> stop. A session keeps one sessionId and a continuous
+// windowIndex across pauses.
 
 let stream = null;
 let faceMesh = null;
 let latestResults = null;
 
-let running = false;
+let running = false; // scheduler ticking (camera open)
+let sessionActive = false; // a recording exists (running or paused)
+let paused = false; // session alive but camera released (Meet camera off)
 let timer = null;
+let retryTimer = null;
 let processing = Promise.resolve(); // serial chain: frames are processed in order
 let startedAtMs = 0;
 let nextTick = 0; // index of the next frame to capture (0-based, counts capture frames only)
 
 let meetingId = null;
+let sessionId = null; // UUID stamped on every window + the session record
+let sessionStartedAt = null;
 let windowIndex = 0;
 let win = null; // the window currently being filled
 
@@ -37,7 +46,7 @@ let stats = newStats();
 function newStats() {
   return {
     framesCaptured: 0, framesWithFace: 0, framesCenterCrop: 0,
-    windowsSent: 0, windowsDropped: 0, partialDropped: 0,
+    windowsSent: 0, windowsDropped: 0, windowsRejected: 0, partialDropped: 0,
     frameMsSum: 0, frameMsMax: 0, meshMsSum: 0, slowFrames: 0,
   };
 }
@@ -49,12 +58,17 @@ const S = CONFIG.OUTPUT_SIZE;
 const FRAME_BYTES = S * S * 3;
 const FRAME_INTERVAL_MS = (CONFIG.WINDOW_SECONDS * 1000) / N;
 const CYCLE_MS = (CONFIG.WINDOW_SECONDS + CONFIG.BREAK_SECONDS) * 1000;
+const RETRY_MS = Math.max(3, CONFIG.RETRY_SECONDS) * 1000;
 
 // Reused canvas for the 160x160 crop.
 const cropCanvas = document.createElement("canvas");
 cropCanvas.width = S;
 cropCanvas.height = S;
 const cropCtx = cropCanvas.getContext("2d", { willReadFrequently: true });
+
+// Reused canvas for the full-frame snapshot (avoids allocating 1 canvas per tick).
+const snapCanvas = document.createElement("canvas");
+const snapCtx = snapCanvas.getContext("2d", { willReadFrequently: true });
 
 // ---------- Face Mesh ----------
 
@@ -126,7 +140,7 @@ function cropToRgb(snap, box, out, offset) {
   const sy0 = Math.max(0, box.y);
   const sx1 = Math.min(snap.width, box.x + box.size);
   const sy1 = Math.min(snap.height, box.y + box.size);
-  if (sx1 <= sx0 || sy1 <= sy0) return false;
+  if (sx1 <= sx0 || sy1 <= sy0 || box.size <= 0) return false;
 
   const k = S / box.size;
   cropCtx.imageSmoothingEnabled = true;
@@ -165,15 +179,25 @@ function newWindow() {
 // snapshotted the instant the tick fires; the (slower) Face Mesh work then runs
 // in order on a promise chain so ticks never drift.
 
-function snapshotVideo() {
+// Returns an ImageBitmap (an immutable copy) so the shared snapshot canvas can be
+// reused immediately even if Face Mesh for the previous frame is still running.
+async function snapshotVideo() {
   const w = video.videoWidth;
   const h = video.videoHeight;
   if (video.readyState < 2 || !w || !h) return null;
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  c.getContext("2d").drawImage(video, 0, 0, w, h);
-  return c;
+  if (snapCanvas.width !== w) snapCanvas.width = w;
+  if (snapCanvas.height !== h) snapCanvas.height = h;
+  snapCtx.drawImage(video, 0, 0, w, h);
+  try {
+    return await createImageBitmap(snapCanvas);
+  } catch (e) {
+    // Fallback: a dedicated canvas copy.
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    c.getContext("2d").drawImage(snapCanvas, 0, 0);
+    return c;
+  }
 }
 
 async function processFrame(slot, snap, capturedAt) {
@@ -185,6 +209,12 @@ async function processFrame(slot, snap, capturedAt) {
   let cropped = false;
   let meshMs = 0;
   let cropMs = 0;
+
+  // The window may have been finalised/dropped by pause/stop while this frame waited.
+  if (!win) {
+    if (snap && snap.close) snap.close();
+    return;
+  }
 
   // 1) face detection + landmarks on the full frame
   if (snap) {
@@ -243,6 +273,7 @@ async function processFrame(slot, snap, capturedAt) {
   } else {
     win.pixels[slot].fill(0);
   }
+  if (snap && snap.close) snap.close(); // free the ImageBitmap
 
   // 4) timing for this frame (snapshot already taken, so this is pure processing cost)
   const totalMs = performance.now() - t0;
@@ -266,9 +297,12 @@ function onTick() {
   nextTick += 1;
   scheduleNextTick(); // keep the cadence independent of processing time
 
-  const snap = snapshotVideo();
   const capturedAt = new Date().toISOString();
-  processing = processing.then(() => processFrame(slot, snap, capturedAt)).catch((e) => console.error("[offscreen]", e));
+  const snapPromise = snapshotVideo().catch(() => null);
+  processing = processing
+    .then(() => snapPromise)
+    .then((snap) => processFrame(slot, snap, capturedAt))
+    .catch((e) => console.error("[offscreen]", e));
 }
 
 function scheduleNextTick() {
@@ -311,6 +345,7 @@ async function finalizeWindow(partial) {
   };
   console.log(`[offscreen] window ${index} done:`, timing);
   const batch = {
+    sessionId, // same UUID for every window of this recording
     meetingId,
     windowIndex: index,
     startedAt: w.startedAt,
@@ -343,8 +378,17 @@ async function finalizeWindow(partial) {
   while (queue.length > CONFIG.MAX_QUEUED_WINDOWS) {
     queue.shift();
     stats.windowsDropped += 1;
+    console.warn("[offscreen] queue full, oldest window dropped");
   }
   flushQueue();
+}
+
+function scheduleRetry() {
+  if (retryTimer || queue.length === 0) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    flushQueue();
+  }, RETRY_MS);
 }
 
 function flushQueue() {
@@ -363,21 +407,28 @@ function flushQueue() {
           queue.shift();
           stats.windowsSent += 1;
           lastError = null;
+        } else if (res && res.drop) {
+          // The backend rejected this window for good (e.g. 400 validation):
+          // retrying would block every later window, so discard it.
+          queue.shift();
+          stats.windowsRejected += 1;
+          lastError = res.error || "Window rejected by backend.";
+          console.error("[offscreen] window rejected by backend, dropped:", lastError);
         } else {
           lastError = (res && res.error) || "No response from background.";
-          console.warn("[offscreen] batch upload failed, will retry:", lastError);
+          console.warn(`[offscreen] batch upload failed, retrying in ${RETRY_MS / 1000} s:`, lastError);
           break;
         }
       }
     } finally {
       flushPromise = null;
     }
-    if (queue.length > 0 && !lastError) flushQueue();
+    if (queue.length > 0) scheduleRetry();
   })();
   return flushPromise;
 }
 
-// ---------- Start / stop ----------
+// ---------- Start / pause / resume / stop ----------
 
 function releaseCamera() {
   if (stream) {
@@ -387,9 +438,7 @@ function releaseCamera() {
   video.srcObject = null;
 }
 
-async function startCapture(newMeetingId) {
-  if (running) return { ok: true, already: true };
-
+async function openCamera() {
   console.log("[offscreen] requesting camera...");
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -398,7 +447,8 @@ async function startCapture(newMeetingId) {
     });
   } catch (err) {
     console.error("[offscreen] getUserMedia FAILED:", err.name, err.message);
-    return { ok: false, error: `${err.name}: ${err.message}` };
+    const hint = err.name === "NotAllowedError" ? " Open the extension popup -> 'Set up camera access' to grant permission." : "";
+    return { ok: false, error: `${err.name}: ${err.message}.${hint}` };
   }
 
   try {
@@ -415,30 +465,29 @@ async function startCapture(newMeetingId) {
   // graph and can take seconds. Do it once now (result ignored) so it does not
   // delay the first real frames of the window.
   try {
-    const warm = snapshotVideo();
-    if (warm) await faceMesh.send({ image: warm });
+    const warm = await snapshotVideo();
+    if (warm) {
+      await faceMesh.send({ image: warm });
+      if (warm.close) warm.close();
+    }
   } catch (err) {
     console.warn("[offscreen] warm-up frame failed (ignored):", err && err.message);
   }
   latestResults = null;
+  return { ok: true };
+}
 
-  meetingId = newMeetingId;
-  windowIndex = 0;
+function startScheduler() {
   win = newWindow();
-  queue = [];
-  lastError = null;
-  stats = newStats();
   processing = Promise.resolve();
   nextTick = 0;
   startedAtMs = performance.now();
   running = true;
   scheduleNextTick();
-  console.log("[offscreen] capture started:", N, "frames /", CONFIG.WINDOW_SECONDS, "s, then", CONFIG.BREAK_SECONDS, "s break, crop x" + CONFIG.CROP_SCALE, "->", S + "x" + S + "x3");
-  return { ok: true };
 }
 
-async function stopCapture() {
-  if (!running) return { ok: false, error: "No active capture." };
+// Stops ticking and settles the half-filled window (sent as partial or dropped).
+async function haltScheduler() {
   running = false;
   clearTimeout(timer);
   try {
@@ -446,19 +495,73 @@ async function stopCapture() {
   } catch (e) {
     /* ignore */
   }
-
   if (win && win.count > 0) {
     if (CONFIG.SEND_PARTIAL_WINDOW) await finalizeWindow(true);
     else stats.partialDropped += 1;
   }
   win = null;
+}
 
+async function startCapture(newMeetingId) {
+  if (sessionActive) {
+    if (paused) return resumeCapture();
+    return { ok: true, already: true, sessionId, meetingId };
+  }
+
+  const cam = await openCamera();
+  if (!cam.ok) return cam;
+
+  meetingId = newMeetingId;
+  sessionId = crypto.randomUUID();
+  sessionStartedAt = new Date().toISOString();
+  windowIndex = 0;
+  queue = [];
+  lastError = null;
+  stats = newStats();
+  sessionActive = true;
+  paused = false;
+  startScheduler();
+  console.log("[offscreen] capture started:", { sessionId, meetingId }, N, "frames /", CONFIG.WINDOW_SECONDS, "s, then", CONFIG.BREAK_SECONDS, "s break, crop x" + CONFIG.CROP_SCALE, "->", S + "x" + S + "x3");
+  return { ok: true, sessionId, meetingId };
+}
+
+async function pauseCapture() {
+  if (!sessionActive) return { ok: false, error: "No active capture." };
+  if (paused) return { ok: true, already: true };
+  paused = true;
+  await haltScheduler();
   releaseCamera();
-  await flushQueue();
-  if (queue.length > 0 && !lastError) await flushQueue();
+  console.log("[offscreen] capture paused (camera released)");
+  return { ok: true };
+}
+
+async function resumeCapture() {
+  if (!sessionActive) return { ok: false, error: "No active capture." };
+  if (!paused) return { ok: true, already: true };
+  const cam = await openCamera();
+  if (!cam.ok) return cam;
+  paused = false;
+  startScheduler();
+  console.log("[offscreen] capture resumed");
+  return { ok: true, sessionId, meetingId };
+}
+
+async function stopCapture() {
+  if (!sessionActive) return { ok: false, error: "No active capture." };
+  await haltScheduler();
+  releaseCamera();
+  sessionActive = false;
+  paused = false;
+
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  await flushQueue(); // one last delivery attempt for anything still queued
 
   const result = {
     ok: true,
+    sessionId,
+    meetingId,
+    startedAt: sessionStartedAt,
     framesCaptured: stats.framesCaptured,
     framesWithFace: stats.framesWithFace,
     framesCenterCrop: stats.framesCenterCrop,
@@ -468,25 +571,43 @@ async function stopCapture() {
     windowsSent: stats.windowsSent,
     windowsUnsent: queue.length,
     windowsDropped: stats.windowsDropped,
+    windowsRejected: stats.windowsRejected,
     partialDropped: stats.partialDropped,
     lastError,
   };
+  clearTimeout(retryTimer); // flushQueue may have re-armed it
+  retryTimer = null;
+  queue = [];
   console.log("[offscreen] capture stopped:", result);
   return result;
 }
 
+function getStatus() {
+  return {
+    ok: true,
+    sessionActive,
+    running,
+    paused,
+    sessionId,
+    meetingId,
+    windowsSent: stats.windowsSent,
+    queued: queue.length,
+    lastError,
+  };
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "OFFSCREEN_START_RECORDING") {
-    startCapture(message.meetingId)
-      .then(sendResponse)
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
-    return true;
-  }
-  if (message.type === "OFFSCREEN_STOP_RECORDING") {
-    stopCapture()
-      .then(sendResponse)
-      .catch((err) => sendResponse({ ok: false, error: err.message }));
-    return true;
-  }
-  return false;
+  const handlers = {
+    OFFSCREEN_START_RECORDING: () => startCapture(message.meetingId),
+    OFFSCREEN_STOP_RECORDING: () => stopCapture(),
+    OFFSCREEN_PAUSE_RECORDING: () => pauseCapture(),
+    OFFSCREEN_RESUME_RECORDING: () => resumeCapture(),
+    OFFSCREEN_STATUS: async () => getStatus(),
+  };
+  const handler = handlers[message.type];
+  if (!handler) return false;
+  handler()
+    .then(sendResponse)
+    .catch((err) => sendResponse({ ok: false, error: err.message }));
+  return true;
 });
