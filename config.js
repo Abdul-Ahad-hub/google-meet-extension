@@ -8,7 +8,7 @@ const CONFIG = {
   DEV_SKIP_LOGIN: false,
 
   // Base URL of your backend (no trailing slash). Use https in production.
-  BACKEND_BASE_URL: "http://localhost:3000",
+  BACKEND_BASE_URL: "https://engagement-analysis-system.vercel.app",
 
   // One POST per window (16 frames + 16 landmark sets). Align with your controller routes.
   FRAMES_ENDPOINT: "/engagement/frames",
