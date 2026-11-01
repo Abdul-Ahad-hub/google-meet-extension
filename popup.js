@@ -3,6 +3,7 @@ const viewMain = document.getElementById("view-main");
 
 const elUserName = document.getElementById("user-name");
 const elUserEmail = document.getElementById("user-email");
+const elUserAvatar = document.getElementById("user-avatar");
 const elMeeting = document.getElementById("status-meeting");
 const elMeetingId = document.getElementById("status-meeting-id");
 const elRole = document.getElementById("status-role");
@@ -13,6 +14,25 @@ const elAuthError = document.getElementById("auth-error");
 const elSaveHint = document.getElementById("save-hint");
 const btnSave = document.getElementById("btn-save");
 const btnEnableCamera = document.getElementById("btn-enable-camera");
+const btnTheme = document.getElementById("btn-theme");
+
+// ---------- Theme (Light / Dark) ----------
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+}
+
+chrome.storage.local.get(["theme"], (data) => {
+  applyTheme(data.theme || "light");
+});
+
+if (btnTheme) {
+  btnTheme.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    chrome.storage.local.set({ theme: next });
+  });
+}
 
 let pollTimer = null;
 let currentTabId = null;
@@ -38,6 +58,16 @@ function switchToMain(user) {
   viewMain.classList.remove("hidden");
   elUserName.textContent = user.name || "Signed in";
   elUserEmail.textContent = user.email || "";
+  if (elUserAvatar) {
+    if (user.picture) {
+      elUserAvatar.style.backgroundImage = `url("${user.picture}")`;
+      elUserAvatar.textContent = "";
+    } else {
+      elUserAvatar.style.backgroundImage = "";
+      const initial = (user.name || user.email || "G").trim().charAt(0).toUpperCase();
+      elUserAvatar.textContent = initial;
+    }
+  }
   checkCameraPermission();
   startPolling();
 }
@@ -233,7 +263,7 @@ btnSave.addEventListener("click", async () => {
     };
 
     chrome.runtime.sendMessage(payload, (response) => {
-      btnSave.textContent = "Save";
+      btnSave.textContent = "Save session";
       if (!response || !response.ok) {
         showError((response && response.error) || "Save failed.");
         btnSave.disabled = false;

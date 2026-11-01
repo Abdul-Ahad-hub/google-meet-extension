@@ -1,6 +1,23 @@
 const btn = document.getElementById("btn-grant");
 const statusEl = document.getElementById("status");
 const preview = document.getElementById("preview");
+const btnTheme = document.getElementById("btn-theme");
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
+}
+
+chrome.storage.local.get(["theme"], (data) => {
+  applyTheme(data.theme || "light");
+});
+
+if (btnTheme) {
+  btnTheme.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    chrome.storage.local.set({ theme: next });
+  });
+}
 
 btn.addEventListener("click", async () => {
   btn.disabled = true;

@@ -2,60 +2,217 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Meet Recorder — Setup</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Google Meet Recorder — Camera Permission</title>
   <style>
+    :root {
+      --gm-bg: #f8fafd;
+      --gm-card: #ffffff;
+      --gm-surface: #f8fafd;
+      --gm-border: #dadce0;
+      --gm-border-subtle: #e8eaed;
+      --gm-text-primary: #202124;
+      --gm-text-secondary: #5f6368;
+      --gm-text-muted: #80868b;
+      --gm-blue: #1a73e8;
+      --gm-blue-hover: #1557b0;
+      --gm-blue-btn-text: #ffffff;
+      --gm-disabled-bg: #e8eaed;
+      --gm-disabled-text: #80868b;
+      --gm-green-bg: #e6f4ea;
+      --gm-green-border: #ceead6;
+      --gm-green-text: #137333;
+      --gm-red-bg: #fce8e6;
+      --gm-red-border: #f5c2c0;
+      --gm-red-text: #c5221f;
+    }
+    :root[data-theme="dark"] {
+      --gm-bg: #131314;
+      --gm-card: #1e1f20;
+      --gm-surface: #282a2c;
+      --gm-border: #3c4043;
+      --gm-border-subtle: #2d2f31;
+      --gm-text-primary: #e8eaed;
+      --gm-text-secondary: #9aa0a6;
+      --gm-text-muted: #80868b;
+      --gm-blue: #8ab4f8;
+      --gm-blue-hover: #aecbfa;
+      --gm-blue-btn-text: #202124;
+      --gm-disabled-bg: #282a2c;
+      --gm-disabled-text: #5f6368;
+      --gm-green-bg: #132a1c;
+      --gm-green-border: #1e4620;
+      --gm-green-text: #81c995;
+      --gm-red-bg: #3c1917;
+      --gm-red-border: #692623;
+      --gm-red-text: #f28b82;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: #000;
-      color: #fff;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      max-width: 480px;
-      margin: 60px auto;
-      padding: 24px;
+      background: var(--gm-bg);
+      color: var(--gm-text-primary);
+      font-family: "Google Sans", "Google Sans Text", Roboto, "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.18s ease, color 0.18s ease;
     }
-    h1 { font-size: 20px; margin-bottom: 8px; }
-    p { font-size: 13px; color: #a0a0a0; line-height: 1.5; margin-bottom: 20px; }
-    button {
+    .card {
+      position: relative;
+      background: var(--gm-card);
+      border: 1px solid var(--gm-border-subtle);
+      border-radius: 20px;
+      max-width: 460px;
       width: 100%;
-      padding: 12px;
-      font-size: 14px;
-      font-weight: 600;
-      background: #fff;
-      color: #000;
-      border: 1px solid #fff;
-      border-radius: 4px;
-      cursor: pointer;
+      padding: 32px 28px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.05);
+      text-align: center;
     }
-    button:hover { background: #d8d8d8; }
-    button:disabled { background: #2a2a2a; color: #6b6b6b; border-color: #2a2a2a; cursor: not-allowed; }
+    @media (max-width: 480px) {
+      .card {
+        padding: 24px 18px;
+        border-radius: 16px;
+      }
+      h1 { font-size: 20px; }
+    }
+    .theme-toggle {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border-radius: 50%;
+      border: none;
+      background: transparent;
+      color: var(--gm-text-muted);
+      opacity: 0.45;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: none;
+      transition: opacity 0.15s ease, background-color 0.15s ease;
+    }
+    .theme-toggle:hover:not(:disabled) {
+      opacity: 0.95;
+      background: var(--gm-surface);
+      box-shadow: none;
+    }
+    .theme-toggle .icon-sun { display: none; }
+    :root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+    :root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+    .logo-badge {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: var(--gm-surface);
+      border: 1px solid var(--gm-border-subtle);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--gm-text-primary);
+      margin-bottom: 8px;
+    }
+    p {
+      font-size: 14px;
+      color: var(--gm-text-secondary);
+      line-height: 1.55;
+      margin-bottom: 24px;
+    }
+    #btn-grant {
+      width: 100%;
+      min-height: 42px;
+      padding: 10px 24px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      background: var(--gm-blue);
+      color: var(--gm-blue-btn-text);
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(26, 115, 232, 0.25);
+      transition: background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    #btn-grant:hover:not(:disabled) {
+      background: var(--gm-blue-hover);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 4px 8px 3px rgba(0, 0, 0, 0.12);
+    }
+    #btn-grant:disabled {
+      background: var(--gm-disabled-bg);
+      color: var(--gm-disabled-text);
+      box-shadow: none;
+      cursor: not-allowed;
+    }
     #status {
       margin-top: 16px;
       font-size: 13px;
-      padding: 10px 12px;
-      border-radius: 4px;
+      padding: 10px 14px;
+      border-radius: 12px;
       display: none;
+      text-align: left;
+      line-height: 1.45;
     }
-    #status.ok { display: block; border: 1px solid #2a4d2a; background: #001a00; }
-    #status.err { display: block; border: 1px solid #4d0000; background: #2a0000; }
+    #status.ok {
+      display: block;
+      border: 1px solid var(--gm-green-border);
+      background: var(--gm-green-bg);
+      color: var(--gm-green-text);
+    }
+    #status.err {
+      display: block;
+      border: 1px solid var(--gm-red-border);
+      background: var(--gm-red-bg);
+      color: var(--gm-red-text);
+    }
     video {
       width: 100%;
       margin-top: 16px;
-      border-radius: 4px;
-      background: #111;
+      border-radius: 12px;
+      background: #202124;
       display: none;
     }
   </style>
 </head>
 <body>
-  <h1>Camera setup</h1>
-  <p>
-    This grants the extension permission to access your camera. Do this once,
-    from this tab — it's required because a hidden background document can't
-    show Chrome's permission prompt itself.
-  </p>
-  <button id="btn-grant">Grant camera access</button>
-  <div id="status"></div>
-  <video id="preview" autoplay muted playsinline></video>
+  <div class="card">
+    <button id="btn-theme" class="theme-toggle" type="button" title="Toggle dark appearance" aria-label="Toggle dark appearance">
+      <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/>
+      </svg>
+      <svg class="icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/>
+      </svg>
+    </button>
+    <div class="logo-badge" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 48 48" fill="none">
+        <path fill="#00832D" d="M27 24l10.5 12V12L27 24z"/>
+        <path fill="#0066DA" d="M6 31.5V36c0 2.2 1.8 4 4 4h17v-8.5H6z"/>
+        <path fill="#E94235" d="M27 12H10c-2.2 0-4 1.8-4 4v15.5l21-19.5z"/>
+        <path fill="#2684FC" d="M27 24v16h3.5c1.3 0 2.5-.6 3.3-1.7L41 28.5c1.3-1.8 1.3-4.2 0-6l-7.2-9.8C33 11.6 31.8 11 30.5 11H27v13z"/>
+        <path fill="#00AC47" d="M37.5 12L27 24V12h10.5z"/>
+        <path fill="#FFBA00" d="M6 16.5v15h21V12H10c-2.2 0-4 1.8-4 4.5z"/>
+      </svg>
+    </div>
+    <h1>Allow camera access</h1>
+    <p>
+      Grant the extension one-time permission to access your camera. Chrome
+      requires this step from a visible tab before background sampling can
+      run during your Google Meet call.
+    </p>
+    <button id="btn-grant">Allow camera access</button>
+    <div id="status"></div>
+    <video id="preview" autoplay muted playsinline></video>
+  </div>
 
   <script src="options.js"></script>
 </body>
